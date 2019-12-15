@@ -1,0 +1,948 @@
+! Temp= 300
+! NMD= 6,000,000
+! iSave= 1000000
+! iPrint= 5000
+! pdt = 0.02
+! pdtZ = 0.02
+! Write AVS.DAT for iSave
+! Writing HIGHT
+! Writing E component
+! Drop 0.5 from Stretch
+! initiallt flat surface [INCRD]
+! applying Strain in [INCRD] STRAIN = 5.0
+! Applying strain gradually STRAINstep = 0.05
+! Apply Compression instead of Strain
+
+!C
+!    This is a simple MD simulation programme. It does include:
+!
+!A: A neighbour list construction.
+!B: A Nose-Hoover thermostat.
+!C: Many-body potentials.
+!D: STRESS CACULATION
+!!---------------------------------------------------------------------
+!C
+!=======================================================================
+!!---------------------------------------------------------------------
+	MODULE PARAMETERS
+
+	  REAL*8   TEMPRI,TEMPRF,PMASS(2),RCUTNB,FORCE_TOLERANCE,RCUTNB0
+      REAL*8   BOXX,BOXY,BOXZ,TEMPR,ENEKIN,ENEPOT,ENETOT,FMAX
+	  REAL*8   Total_ENEPOT_s, Total_ENEPOT_be, Total_ENEPOT_bo
+	  REAL*8   Total_ENEPOT_cor, Total_ENEPOT_out, Total_ENEPOT_stif
+	  
+      INTEGER  LMAX,NBUPDATE_PERIOD,IO_PERIOD,VSCALING_PERIOD
+      INTEGER  IXBC,IYBC,IZBC,ISTART,LOOPINI,COUNTER,N0,N1
+!    
+		REAL*8, ALLOCATABLE:: RX(:),RY(:),RZ(:)
+
+		REAL*8, ALLOCATABLE:: RX0(:),RY0(:),RZ0(:)
+	
+!C		REAL*8, ALLOCATABLE:: RHO(:)
+
+        ! REAL*8, ALLOCATABLE::  sigxx(:),sigyy(:),sigzz(:)
+        ! REAL*8, ALLOCATABLE::  sigxy(:),sigxz(:),sigyz(:) 
+	    
+!       REAL*8, ALLOCATABLE::  fxij(:,:) ,fyij(:,:),fzij(:,:)
+!C		REAL*8, ALLOCATABLE :: GR(:),RX_GHA(:),RY_GHA(:),RZ_GHA(:)  
+		!REAL(8), ALLOCATABLE :: FC(:),DFC(:),    RIJX(:),RIJY(:),RIJZ(:),RIJ(:),  ZETA(:),DZETA(:,:,:),BSD(:)							
+      
+!C		INTEGER, ALLOCATABLE :: NR(:) 
+		INTEGER,ALLOCATABLE:: IP(:),iflag(:)
+          INTEGER, ALLOCATABLE :: NNBOR(:),NBLIST(:,:)
+	    INTEGER, ALLOCATABLE :: NNBOR1(:),NBLIST1(:,:)
+	    INTEGER, ALLOCATABLE :: NNBOR2(:),NBLIST2(:,:)
+!!---------------------------------------------------------------------
+	    REAL*8 DELR
+		REAL*8 OLDV,Q
+		REAL*8 PRESSR,CURTMP,DTEMP,CURTMP0,CURTMP1
+		REAL*8 TEMP,DT,DT2,DTSQ,PDT,PDTz,TIME1,TIME0, STRAIN, STRAINstep, lastSTRAINstep
+		REAL*8 MUNIT,EUNIT,LUNIT,RCMAX
+		REAL*8 H,M,DELTAV,TMP,SCALER
+		REAL*8 SUMKE,VKE,VPE,VAV,VPR,SUMKE0,SUMKE1
+		REAL*8 TAU,ETA,E01,NAA(0:2),MAA(0:2)
+	
+!       INTEGER :: NALL
+!       INTEGER, ALLOCATABLE :: IP(:)  !,NABORRS(:),LISST(:,:)
+!C		REAL*8 CHEM_POT
+!       REAL*8 JH1,JH2,JH3
+          !!!!!!!!!!haminja
+	    !real(8) ,allocatable :: marzl(:),marzr(:)
+	   
+		!integer marz
+!C ----------------------------------------------------------------------    
+
+		INTEGER NMD,NAD,NADEX,NADIN   
+		INTEGER NALL
+		INTEGER NMAX,IPAIR
+		INTEGER ISAVE,IPRINT,iSTRAIN, IEQULV,IDTEMP
+		INTEGER ITN,INH_TERMOSTATE,IEQUILIB_CHECK,IDIFUSECOFF
+		INTEGER NSTEP
+		INTEGER STRAINcounter, STRAINmaxN
+!!---------------------------------------------------------------------
+		PARAMETER (RCMAX=0.1 )!,NLMAX=1000000) //NLMAX=NALL*NALL
+		PARAMETER (PI=3.1415926535897932384626433832795, NBMAX=3) 
+
+!!---------------------------------------------------------------------
+
+!C:		VX,VY,VZ= Components of atomic velocities
+!C:		RX,RY,RZ= Components of atomic positions
+!C:		FX,FY,FZ= Components of force experienced by atoms
+
+!!---------------------------------------------------------------------
+		CHARACTER TITLE*80,ELA*2,ELB*2,TEXT*3
+!!---------------------------------------------------------------------
+	END MODULE PARAMETERS
+!!---------------------------------------------------------------------
+      PROGRAM MD_SIMULATION_AT_IPM
+
+	   USE PARAMETERS
+!        USE CONFINE
+        
+		  USE dfport !USE dflib
+
+		IMPLICIT NONE
+          INTEGER N,L
+
+!    	CHARACTER*8 HOUR
+!    	CHARACTER*9 TODAY2
+        
+		  CHARACTER*24 TODAY
+
+		REAL TA(2),TIMECO
+		TIMECO=ETIME(ta)
+
+        OPEN(144,FILE='Info.txt',STATUS='UNKNOWN')
+      !call SEED(RND$TIMESEED)
+!       VOLSUM=0.0D0
+
+!!---- The following sub. and function show current the date and time---
+!c			
+!       CALL TIME(HOUR)
+!       CALL DATE(TODAY2)
+!       CALL FDATE(TODAY)
+!       WRITE(6,*)' The program start at  ', HOUR, ' On ',TODAY
+ 
+          TODAY=FDATE()
+
+         WRITE(6,*)
+         WRITE(6,*)'***************************************************'
+         WRITE(6,*)		 
+         WRITE(6,*)'  The program started at  ', TODAY 
+         WRITE(6,*)
+         WRITE(6,*)'***************************************************' 
+         WRITE(6,*)
+         
+         WRITE(144,*)'***************************************************'
+         WRITE(144,*)		 
+         WRITE(144,*)'  The program started at  ', TODAY 
+         WRITE(144,*)
+         WRITE(144,*)'***************************************************' 
+         WRITE(144,*)
+         
+!---------------THE SUBROUTINE THAT CONTORING DATA--------------------
+
+		CALL CONTROL_DATA()
+
+!------------------Start of the Main Programme------------------------
+
+!------------------Opens the initial cofiguration file----------------
+      
+		OPEN(24,FILE='NANO.DAT',STATUS='OLD')
+!C
+!------------------Reads the data from CNFILE-------------------------
+		CALL INCRD()
+!C
+		CLOSE(24)
+			OPEN(99,FILE='AVS.DAT',STATUS='UNKNOWN')
+		    WRITE(99,*)NALL
+          
+!---------------------------------------------------------------------
+!c
+		CALL Mc_RUN()	
+
+
+         TODAY=FDATE()
+         WRITE(144,*)'***************************************************'
+         WRITE(144,*)		 
+         WRITE(144,*)'  The program Finished at  ', TODAY 
+         WRITE(144,*)
+         WRITE(144,*)'***************************************************' 
+         WRITE(144,*)
+        
+        CLOSE(144)
+!C!---------------------------------------------------------------------
+
+		STOP
+      END
+!----------------End of the Main Programme----------------------------
+
+!-------------Declaration of the subroutines--------------------------
+!C
+!--The subroutine that reads the configuration file-------------------
+
+      SUBROUTINE INCRD()
+          
+     	  USE PARAMETERS
+          USE dfport   !USE dfport
+      
+		IMPLICIT NONE
+		INTEGER         I,j,k,ncux,ncuy
+		REAL*8          OLDTEMP,OLDDT,xcu,ycu,ryk0,rxk0,XXX, Hight2, Hight
+!---------------------------------------------------------------------
+
+
+    	READ(24,*) NSTEP
+		READ(24,99) TITLE
+        READ(24,*) N0 !,N1
+		READ(24,*) BOXX,BOXY,BOXZ
+
+       !READ(24,*) RCUTNB
+!---------------------------------------------------------------------
+!C		NLMAX=NALL*NALL
+!---------------------------------------------------------------------
+
+        NALL=N0 !+N1	
+!---------------------------------------------------------------------		
+	
+		ALLOCATE (RX(NALL),RY(NALL),RZ(NALL),iflag(nall),IP(NALL))
+		ALLOCATE (RX0(NALL),RY0(NALL),RZ0(NALL))
+	
+	    ALLOCATE(NNBOR(N0),NBLIST(N0,NBMAX))
+        ALLOCATE(NNBOR1(Nall),NBLIST1(Nall,NBMAX))
+        ALLOCATE(NNBOR2(N0),NBLIST2(N0,NBMAX))
+
+       ! ALLOCATE(sigxx(nall),sigyy(nall),sigzz(nall)) 
+       ! ALLOCATE(sigxy(nall),sigyz(nall),sigxz(nall))  
+	!    ALLOCATE ( FC(NBMAX),DFC(NBMAX),  RIJX(NBMAX),RIJY(NBMAX),RIJZ(NBMAX),RIJ(NBMAX),  ZETA(NBMAX),DZETA(NBMAX,NBMAX,3),BSD(NBMAX))
+!---------------------------------------------------------------------
+READ(24,*) (RX(I),RY(I),RZ(I),IP(I),I=1,Nall)	
+CALL RANDOM_SEED()
+
+
+
+!DO I=1,NALL
+!
+!CALL RANDOM_NUMBER(XXX)
+!RX(I)=RX(I) +(1-2*XXX)*0.1
+!CALL RANDOM_NUMBER(XXX)
+!RY(I)=RY(I) +(1-2*XXX)*0.1
+!CALL RANDOM_NUMBER(XXX)
+!RZ(I)=RZ(I) +(1-2*XXX)*0.1
+!ENDDO
+!
+!
+!DO I=1, NALL
+!    Hight2 = Hight2+RZ(I)**2
+!ENDDO
+!Hight = SQRT(Hight2 / NALL)
+
+
+!DO I=1,NALL
+!    IF (IP(I)==0.AND. RX(I).GT.0 ) RX(I)= RX(I) - STRAINstep !for Stretch +STRAINstep
+!    IF (IP(I)==0.AND. RX(I).LT.0 ) RX(I)= RX(I) + STRAINstep !for Stretch -STRAINstep
+!ENDDO
+!
+!STRAINcounter = 1
+!STRAINmaxN = INT(STRAIN / STRAINstep) !Number of step to add STRAIN
+!lastSTRAINstep = DMOD(STRAIN , STRAINstep) !last STRAIN step if there is remainder
+
+
+
+
+
+!---------------------------------------------------------------------
+12	   IF(NSTEP.EQ.0) OLDV=BOXX*BOXY*BOXZ
+         IF(NSTEP.EQ.0) ETA=0.0
+!---------------------------------------------------------------------
+		WRITE(6,250) TITLE
+!c		WRITE(6,1003) ELA,'WITH',ELB,INT(PERCENT),'%'
+		WRITE(6,1000) NALL
+		WRITE(6,1001) BOXX,BOXY,BOXZ
+		WRITE(6,1004) Hight
+        WRITE(144,1004) Hight
+
+		!  WRITE(77,250) TITLE
+		!  WRITE(77,1000) NALL
+		!  WRITE(77,1001) BOXX,BOXY,BOXZ
+	
+!---------------------------------------------------------------------
+99		FORMAT(A80)
+999		FORMAT((1X,A2,2X,A4))
+250		FORMAT(/,2X,'CONFIGURATION FILE TITLE:',/,2X,A80)
+1000		FORMAT(/,2X,'NALL=',I6,2X,'ATOMS',//)
+1001		FORMAT(/,2X,'X,Y,Z BOX SIDES:',3E13.4)
+1004		FORMAT(/,2X,'INITIAL HIGHT:',F8.4)
+1010		FORMAT(1X,'TYPE OF ATOM FLAG=',I2)     
+1002		FORMAT(/,2X,'NALL=',I6,2X,'ATOMS',5X,'NATL',I6,2X,'ATOMS',//)   
+1003		FORMAT(1X,'ALLOY TYPE: ',A2) 
+	
+
+!!!!!!!
+     
+
+		RETURN
+      END
+!---------------------------------------------------------------------
+ 
+    
+!---------------------------------------------------------------------
+!----------The main subroutine that performs the MD simulation--------
+
+      SUBROUTINE Mc_RUN()
+
+    USE PARAMETERS
+    INTEGER NT,JJ,ii,MT,FT,c, IJ
+	REAL*8 E0,E1,rate,x0,y0,z0, Hight2, Hight0, Hight
+	REAL*8 Es, Ebe, Ebo, Ecor, Eout, Estif
+   
+   	CALL IMPRSN()
+	CALL CRTNB1()      
+
+    
+!=====================main loop    
+	DO ITN=1,NMD
+
+ !RX0=RX
+ !RY0=RY
+ !RZ0=RZ
+
+	!CALL IMPRSN()
+   
+    CALL TERSOFF2009
+    E0=ENEPOT !/NALL
+    Es = Total_ENEPOT_s
+    Ebe = Total_ENEPOT_be
+    Ebo = Total_ENEPOT_bo
+    Ecor = Total_ENEPOT_cor
+    Eout = Total_ENEPOT_out
+    Estif =  Total_ENEPOT_stif
+    
+    
+     
+xxx=0.0d0
+yyy=0.0d0
+zzz=0.0d0
+xx=0.0d0
+xn=0.0d0
+
+
+!IF (mod(I,iSTRAIN)==0) THEN
+!
+!IF (STRAINcounter.LT.STRAINmaxN) THEN
+!DO IJ=1,NALL
+!    IF (IP(IJ)==0.AND. RX(IJ).GT.0 ) RX(IJ)= RX(IJ) - STRAINstep !for Stretch +STRAINstep
+!    IF (IP(IJ)==0.AND. RX(IJ).LT.0 ) RX(IJ)= RX(IJ) + STRAINstep !for Stretch -STRAINstep
+!ENDDO
+!STRAINcounter = STRAINcounter + 1
+!ENDIF
+!
+!IF ((STRAINcounter.EQ.STRAINmaxN).AND.(lastSTRAINstep /=0)) THEN
+!DO IJ=1,NALL
+!    IF (IP(IJ)==0.AND. RX(IJ).GT.0 ) RX(IJ)= RX(IJ) - lastSTRAINstep
+!    IF (IP(IJ)==0.AND. RX(IJ).LT.0 ) RX(IJ)= RX(IJ) + lastSTRAINstep
+!ENDDO
+!STRAINcounter = STRAINcounter + 1
+!ENDIF 
+!
+!ENDIF
+
+
+
+
+
+1023 CALL RANDOM_NUMBER(XXX)
+II=INT(XXX*NALL)+1
+
+IF(IP(II).EQ.0) GOTO 1023
+
+c=c+1
+
+lx=1
+
+CALL RANDOM_NUMBER(XXX)
+IF(XXX.GT.0.5) RX(ii)=RX(ii)+pdt
+IF(XXX.lT.0.5) then 
+RX(ii)=RX(ii)-pdt
+lx=-1
+endif
+
+
+ly=1
+CALL RANDOM_NUMBER(XXX)
+IF(XXX.GT.0.5) RY(ii)=RY(ii)+pdt
+IF(XXX.lT.0.5) then 
+RY(ii)=RY(ii)-pdt
+ly=-1
+endif
+
+lz=1
+CALL RANDOM_NUMBER(XXX)
+IF(XXX.GT.0.5) RZ(ii)=RZ(ii)+pdtz
+IF(XXX.lT.0.5) then 
+RZ(ii)=RZ(ii)-pdtz
+lz=-1
+endif
+  
+         CALL TERSOFF2009
+         E1=ENEPOT !/NALL
+
+ 
+
+
+rate=DEXP(-(E1-E0)/(0.0258*Temp/300.0))
+CALL RANDOM_NUMBER(xx)
+
+
+IF(E1.GT. E0.AND.XX.GT.RATE ) then
+RX(ii)=RX(ii)-pdt*lx
+Ry(ii)=Ry(ii)-pdt*ly
+Rz(ii)=Rz(ii)-pdtz*lz 
+c=c-1
+
+  ENDIF
+
+if(mod(iTN,iPRINT)==0) then
+  Hight0=0
+  Hight2=0
+  Hight=0
+  
+    DO JJ=1, NALL
+        Hight2 = Hight2+RZ(JJ)**2
+        Hight0 = Hight0 + RZ(JJ)
+    ENDDO
+    Hight = SQRT(Hight2 / NALL - (Hight0/ NALL)**2 )
+
+
+    write(6,1091)itn,c,e0, Hight !rate,c/real(i)*100
+    WRITE(16,1019)E0, Hight
+    WRITE(17,228)E0, Es, Ebe, Ebo, Eout, Ecor, Estif
+ endif
+ 
+  IF (mod(itn,iSave)==0) then 
+      
+			WRITE(99,333)ITN,300D0,2000D0,3000D0,5000D0
+			WRITE(99,428)(RX(iI),RY(iI),RZ(iI),IP(iI),iI=1,NALL)
+333			FORMAT(I8,4(1X,F15.7))
+427			FORMAT(I8)
+4299		FORMAT(3E21.12)
+428			FORMAT(3E25.16,I6)
+228			FORMAT(7F15.6) !7F15.6
+1019		FORMAT(F13.5,8X,F13.5)
+1091		FORMAT(2X,I10,3X,I10,4X,F13.4,4X,F13.4)  
+
+   ENDIF
+
+ENDDO !metropolis
+
+
+RETURN
+  
+END
+
+!----------------------------------------------------------------------
+	SUBROUTINE IMPRSN()
+ 
+     	USE PARAMETERS        
+		IMPLICIT NONE
+		INTEGER I
+
+
+        Rx=Rx-BOXx*DNINT(Rx/BOXx)
+		RY=RY-BOXY*DNINT(RY/BOXY)
+		RZ=RZ-BOXZ*DNINT(RZ/BOXZ)
+		RETURN
+      END
+
+
+!----------------The subroutine THAT CONTOROLING DATA-----------------
+      SUBROUTINE CONTROL_DATA()
+		USE PARAMETERS
+		IMPLICIT NONE
+!---------------------------------------------------------------------
+!C:NMD=Number of iteration points
+!C:NSTEP= Iteration number THAT DID (TEDADE MARAHEL ANGA SHODEH)
+!C:NALL= Total number of atoms
+!C:NMAX= maximum number of atoms
+!C:IP=Flag for atomic colour 
+!C:ISAVE=Flag for saving the Configuration file
+!C:IPRINT=Flag for printing intermediate results
+!C:IEQULV= Flag for volume equilibration
+!C:IEQULT= Flag for temperature equilibration
+!C:IPOTENTIAL= Flag FOR TYPE OF ATOM
+!C:ISTRESS=FLAG FOR CALCULATE THE STRESS
+!C:SAVE SIGMA=FLAG FOR SAVING THE STRESS
+!C:ISCALER=FLAG FOR SCALE THE INITIAL DATA
+!C:ICHANGETEMP=FLAG FOR CHANG THE TEMPUTER
+!C:CHANGETEMP=TEMP THAT INCREAS FOR EACH 10 STEP 
+!C:INH_TERMOSTATE=Flag for temperature equilibration WITH NOSE
+!C:                   _HOOVER THERMOSTATE
+!C:DTEMP=THE VALUE THAT INCREASE THE THMPUTER IN EVERY IDTEMP STEP
+!C:IDTEMP=NUMBER OF STEP THAT INCREASE TEMPUTER]
+!C:DT=VALUE OF EVERY TIME STEP
+!C:TAU=THE QUANTITY THAT DEPEND TO NOISE_HOVER (KIND OF TIME)
+!C:PDT PRESSURE TIME CONSTANT (SCALER=1.0+(DT/PDT)*PRESSR)
+!!---------------------------------------------------------------------
+
+!-----------------Control Data----------------------------------------
+		
+		NMD=10000000
+		TEMP=50.0d0
+		
+		DTEMP=0.0
+	    !IDTEMP=1
+		
+		DT=5.0D-16	!last=10d-16   !4.d-16  !4D-15   !40.D-15   !4.D-15	    !4.D-16
+		TAU=10.0D-15 !last=30d-15           !150d-16 !100D-15 !?????     !400.D-15	!400_450.D-16
+		
+		PDT=0.02
+		PDTz=0.02
+		
+!		STRAIN = 1.8
+!		
+!		STRAINstep = 0.02
+!		iSTRAIN = 1000000
+		
+		ISAVE = 5000000		
+		IPRINT = 5000
+        IPAIR = 10000
+		
+		IEQULV=0
+		INH_TERMOSTATE=1
+
+        DELR=0.25*1.42 !/LUNIT
+
+!------- RCUT FOR MAKING NABOURLIST OF C60 ATOMS
+	RCUTNB0=2.0D0  !/LUNIT
+!------- MINIMUM DISTANCE OF ADSORBED GAS ATOMS FROM C60 
+
+!C
+!C ----Writes the cotrol data for checking-------------------------------
+		WRITE(6,1002) NMD
+		WRITE(6,1008) TEMP
+		WRITE(6,1009) DT
+		WRITE(6,1001) PDT
+		WRITE(6,10011) PDTz
+		WRITE(6,10012) STRAIN
+		WRITE(6,10013) iSTRAIN
+		WRITE(6,10014) STRAINstep
+		WRITE(6,1004) ISAVE
+		WRITE(6,1005) IPRINT
+		WRITE(6,1011) IEQULV
+		WRITE(6,1055) INH_TERMOSTATE
+	    
+	    
+	    WRITE(144,1002) NMD
+		WRITE(144,1008) TEMP
+		WRITE(144,1009) DT
+		WRITE(144,1001) PDT
+		WRITE(144,10011) PDTz
+		WRITE(144,10012) STRAIN
+		WRITE(144,10013) iSTRAIN
+		WRITE(144,10014) STRAINstep
+		WRITE(144,1004) ISAVE
+		WRITE(144,1005) IPRINT
+		WRITE(144,1011) IEQULV
+		WRITE(144,1055) INH_TERMOSTATE
+		
+!C --------------------------------------------------------------------
+997         FORMAT(1X,'CONSTANT TEMPERATURE MOLECULAR DYNAMICS ',A80,/)
+998         FORMAT(A80)
+999         FORMAT(1X,'CONFIGURATION FILE:',/,1X,A80)
+1001        FORMAT(1X,'PRESSURE TIME CONSTANT:',F8.3)
+10011       FORMAT(1X,'PRESSURE TIME CONSTANT for Z:',F8.3)
+10012       FORMAT(1X,'STRAIN CONSTANT:',F8.3)
+10013       FORMAT(1X,'ADD STRAIN EVERY',I8,' STEPS')
+10014       FORMAT(1X,'STRAIN STEP:',F5.2)
+1002        FORMAT(1X,'MAXIMUM NUMBER OF ITERATIONS=',I10)
+1004        FORMAT(1X,'CONFIGURATION SAVED EVERY',I8,' ITERATIONS')
+1005        FORMAT(1X,'LINE PRINTER OUTPUT EVERY',I8,' ITERATIONS')
+1007        FORMAT(1X,'TEMPERATURE EQUILIBRATION FLAG=',I2)
+1008        FORMAT(1X,'INITIAL TEMPERATURE=',F7.1,'K')
+1009        FORMAT(1X,'TIME-STEP=',E9.2,' SECONDS')
+1010        FORMAT(1X,'TYPE OF ATOM FLAG=',I2)
+1011        FORMAT(1X,'PRESSURE EQUILIBRATION FLAG=',I2)
+1055        FORMAT(1X,'TEMPERATURE EQUIL. WITH NOSE HOOVER FLAG=',I2)
+      END
+!====================================================================
+!=====================================================================
+   SUBROUTINE CRTNB1     ! FOR GRAPHENE
+!C
+          
+     	USE PARAMETERS
+         
+      IMPLICIT NONE !DOUBLE PRECISION(A-H,O-Z)
+
+	REAL*8 R2,DX,DY,DZ,RCUTNB2
+	INTEGER IP1,JP,jj
+
+      RCUTNB2 = RCUTNB0*RCUTNB0
+!C
+!-------------------------
+!C RESET NEIGHBOR LIST
+
+      DO  IP1=1,N0
+        NNBOR(IP1) = 0
+      enddo
+
+!C
+!-------------------------
+!C
+      DO  IP1=1,N0
+        DO  JP=1,N0
+         
+		  IF( JP.EQ.IP1 ) GO TO 88881
+          !IF( ip(JP).Eq.0.or.ip(iP1).Eq.0.) GO TO 88881
+
+          DX = RX(JP) - RX(IP1)
+          DY = RY(JP) - RY(IP1)
+          DZ = RZ(JP) - RZ(IP1)
+!C
+       !   DX = DX - BOXX*ANINT( DX/BOXX )*1.0D0 !DBLE(IXBC)
+        DY = DY - BOXY*ANINT( DY/BOXY )*1.0D0 !DBLE(IYBC)
+        !  DZ = DZ - BOXZ*ANINT( DZ/BOXZ )*1.0D0 !DBLE(IZBC)
+!C
+          R2  = DX*DX + DY*DY + DZ*DZ
+
+          IF( R2.LT.RCUTNB2 ) THEN
+
+            NNBOR(IP1)= NNBOR(IP1) + 1
+          
+		    !if(iflag(ip1.ne.0))   write(106,263)ip1,jp,sqrt(r2)
+		  
+		    IF( NNBOR(IP1).GT.NBMAX ) THEN
+              WRITE(6,*) 'NEIGHBOR LIST LIMITc-c: IP1,NNBOR(IP1) = ',    IP1,NNBOR(IP1)
+             ! WRITE(77,*) 'NEIGHBOR LIST LIMIT: IP1,NNBOR(IP1) = ',
+    ! &             IP1,NNBOR(IP1)
+              STOP
+            ENDIF
+
+
+            NBLIST(IP1,NNBOR(IP1)) = JP
+
+
+
+          ENDIF
+88881       enddo
+      enddo
+      OPEN(334,FILE='NBLIST.DAT',STATUS='UNKNOWN')
+      DO IP1=1,N0
+        Write(334,335) NNBOR(IP1),(NBLIST(IP1,jj),jj=1,NBMAX)
+        
+      ENDDO
+      ! write(106,*)
+263 	FORMAT(2I5,E25.16) 
+335			FORMAT(4I8)
+      END SUBROUTINE
+!=====================================
+  SUBROUTINE TERSOFF2009
+
+     
+ USE PARAMETERS
+ INTEGER IP1,JP,JP1,JN,JN1,KP,LP         
+ REAL*8  RIJX(3),RIJY(3),RIJZ(3),RIJ(3)
+ REAL*8  R0, BETA_R1, BETA_R2, BETA_RC, BETA_V, BETA_P, ABC, BETA_C
+ REAL*8  PIPJ, PIX, PIY, PIZ, PJX, PJY, PJZ
+ real*8  CIJK, dRIJ_dRIK, dRIJ_CIKL, VIJKL, RIJKL
+!C
+
+R0=1.42
+BETA_R1=18.52
+BETA_C=4.087
+BETA_V=1.313
+BETA_R2=4.004
+BETA_P=0.008051
+BETA_RC=4.581
+
+
+ENEPOT = 0.0D0
+ENEPOT_s=0.0d0
+ENEPOT_be=0.0d0
+ENEPOT_bo=0.0d0
+ENEPOT_cor=0.0d0
+ENEPOT_out=0.0d0
+ENEPOT_stif=0.0d0
+
+Total_ENEPOT_s = 0.0D0
+Total_ENEPOT_be = 0.0D0
+Total_ENEPOT_bo = 0.0D0
+Total_ENEPOT_cor = 0.0D0
+Total_ENEPOT_out = 0.0D0
+Total_ENEPOT_stif = 0.0D0
+
+!C
+!-------------------------
+!C
+
+ !MainITERATION : 
+
+ DO 1253 IP1=1, N0
+
+	ENEPOT_s=0.0
+
+	IF(IP(IP1).eq.0) GOTO 1253 !ENDDO MainITERATION
+
+        NNB = NNBOR(IP1)
+    
+!============  STREACHING  
+
+        StretchingITER : DO JN=1, NNB
+        
+		  JP = NBLIST(IP1,JN)
+
+          RIJX(JN) = RX(JP) - RX(IP1)
+          RIJY(JN) = RY(JP) - RY(IP1)
+          RIJZ(JN) = RZ(JP) - RZ(IP1)
+
+          !RIJX(JN) = RIJX(JN) - BOXX*ANINT( RIJX(JN)/BOXX ) 
+          RIJY(JN) = RIJY(JN) - BOXY*ANINT( RIJY(JN)/BOXY )
+          !RIJZ(JN) = RIJZ(JN) - BOXZ*ANINT( RIJZ(JN)/BOXZ )
+
+          RIJ(JN) = SQRT( RIJX(JN)**2+RIJY(JN)**2+ RIJZ(JN)**2 )
+
+          ENEPOT_s=ENEPOT_s+ BETA_R1*R0**(-2)*(RIJ(JN)-R0)**2  ! STREACH        
+          
+		   !drop 0.5 --> +(0.5)*BETA_R1*R0**(-2)*(RIJ(JN)-R0)**2
+		   !double counting
+
+
+           !!!!!!!!!!!!!!  Thermal Contraction EFFECT
+           if (itn.gt.9999000) then
+		   if( abs(rx(ip1)).lt.20.and.abs(ry(ip1)).lt.20)  write(179,*) RIJ(JN)
+           endif
+           !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+		ENDDO StretchingITER
+
+
+!======================= BENDING+BOND ORDER
+
+       
+	   
+	      JP = NBLIST(IP1,1) 
+	  	  
+          RIJX(1) = RX(JP) - RX(IP1)
+          RIJY(1) = RY(JP) - RY(IP1)
+          RIJZ(1) = RZ(JP) - RZ(IP1)
+
+
+         ! RIJX(1) = RIJX(1) - BOXX*ANINT( RIJX(1)/BOXX ) 
+          RIJY(1) = RIJY(1) - BOXY*ANINT( RIJY(1)/BOXY )
+          !RIJZ(1) = RIJZ(1) - BOXZ*ANINT( RIJZ(1)/BOXZ )
+          
+		  RIJ(1) = SQRT( RIJX(1)**2+RIJY(1)**2+ RIJZ(1)**2 )
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+          KP =  NBLIST(IP1,2)
+
+		  RIJX(2) = RX(KP) - RX(IP1)
+          RIJY(2) = RY(KP) - RY(IP1)
+          RIJZ(2) = RZ(KP) - RZ(IP1)
+
+         ! RIJX(2) = RIJX(2) - BOXX*ANINT( RIJX(2)/BOXX ) 
+          RIJY(2) = RIJY(2) - BOXY*ANINT( RIJY(2)/BOXY )
+         ! RIJZ(2) = RIJZ(2) - BOXZ*ANINT( RIJZ(2)/BOXZ )
+
+          RIJ(2) = SQRT( RIJX(2)**2+RIJY(2)**2+ RIJZ(2)**2 ) 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+		  LP =  NBLIST(IP1,3)     
+		                                                     ! LP=  NBLIST(IP1,2)
+          RIJX(3) = RX(LP) - RX(IP1)
+          RIJY(3) = RY(LP) - RY(IP1)
+          RIJZ(3) = RZ(LP) - RZ(IP1)
+
+
+          !RIJX(3) = RIJX(3) - BOXX*ANINT( RIJX(3)/BOXX ) 
+          RIJY(3) = RIJY(3) - BOXY*ANINT( RIJY(3)/BOXY )
+        !  RIJZ(3) = RIJZ(3) - BOXZ*ANINT( RIJZ(3)/BOXZ )
+          
+          
+	      RIJ(3) = SQRT( RIJX(3)**2+RIJY(3)**2+ RIJZ(3)**2 ) 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   	          
+    CIJK = (RIJX(1)*RIJX(2)+RIJY(1)*RIJY(2)+RIJZ(1)*RIJZ(2))/(RIJ(1)*RIJ(2)) + 0.5
+
+ 
+    ENEPOT_be = BETA_C * (CIJK)**2    !BENDING
+!!!!!!
+    
+	CIJK = (RIJX(2)*RIJX(3)+RIJY(2)*RIJY(3)+RIJZ(2)*RIJZ(3))/(RIJ(2)*RIJ(3)) + 0.5
+
+    ENEPOT_be = ENEPOT_be + BETA_C * (CIJK)**2 !BENDING
+
+!!!!
+
+    CIJK = (RIJX(1)*RIJX(3)+RIJY(1)*RIJY(3)+RIJZ(1)*RIJZ(3))/(RIJ(1)*RIJ(3)) + 0.5
+
+    ENEPOT_be = ENEPOT_be + BETA_C * (CIJK)**2 !BENDING
+!!!!
+
+    dRIJ_dRIK =(RIJ(1)-R0)*(RIJ(2)-R0) + (RIJ(2)-R0)*(RIJ(3)-R0) + (RIJ(1)-R0)*(RIJ(3)-R0)   
+ 
+    ENEPOT_bo = BETA_R2 * R0**(-2) * dRIJ_dRIK  !BOND ORDER
+!
+ 
+!=======================
+!======================= correlation bending streaching
+   
+
+
+CIKL = (RIJX(2)*RIJX(3)+RIJY(2)*RIJy(3)+RIJZ(2)*RIJZ(3))/(RIJ(2)*RIJ(3)) + 0.5     
+   
+dRIJ_CIKL = (RIJ(1)-R0) * CIKL
+     
+
+ENEPOT_cor = BETA_RC * R0**(-1) * dRIJ_CIKL  ! ENEPOT_cor is for every atom (IP1) or for all atom (SUM IP1)
+
+!!!!!!!!
+
+CIKL = (RIJX(1)*RIJX(3)+RIJY(1)*RIJY(3)+RIJZ(1)*RIJZ(3))/(RIJ(1)*RIJ(3)) + 0.5       
+   
+dRIJ_CIKL = (RIJ(2)-R0) * CIKL
+     
+
+ENEPOT_cor = ENEPOT_cor + BETA_RC * R0**(-1) * dRIJ_CIKL
+!!!!!!!!
+
+CIKL = (RIJX(1)*RIJX(2)+RIJY(1)*RIJY(2)+RIJZ(1)*RIJZ(2))/(RIJ(1)*RIJ(2)) + 0.5        
+   
+dRIJ_CIKL = (RIJ(3)-R0) * CIKL
+     
+
+ENEPOT_cor = ENEPOT_cor + BETA_RC * R0**(-1) * dRIJ_CIKL
+!!!!
+
+!=======================
+!=======================OUT OF PLANE =================
+
+     
+      VIJKL = RIJX(1)*RIJY(2)*RIJZ(3) + RIJY(1)*RIJZ(2)*RIJX(3) + RIJZ(1)*RIJX(2)*RIJY(3)
+      
+	  VIJKL = VIJKL - RIJX(1)*RIJZ(2)*RIJY(3) - RIJY(1)*RIJX(2)*RIJZ(3) - RIJZ(1)*RIJY(2)*RIJX(3)
+
+      VIJKL = VIJKL / (RIJ(1)*RIJ(2)+RIJ(1)*RIJ(3)+RIJ(2)*RIJ(3))
+
+      ENEPOT_out = BETA_V * R0**(-2) * (3*VIJKL)**2        ! ENEPOT_out is for all atoms
+
+       
+!
+!-----------------------
+PIX=0.0d0
+PIY=0.0d0
+PIZ=0.0d0
+         	  
+		  
+		  PIX = RIJY(1)*RIJZ(2) - RIJY(2)*RIJZ(1)           ! X 1 & 2
+          PIX = PIX + RIJY(3)*RIJZ(1) - RIJY(1)*RIJZ(3)     ! X 1 & 3       RIJY(1)*RIJZ(3) - RIJY(3)*RIJZ(1)
+		  PIX = PIX + RIJY(2)*RIJZ(3) - RIJY(3)*RIJZ(2)     ! X 2 & 3
+
+          PIY = RIJZ(1)*RIJX(2) - RIJZ(2)*RIJX(1)          
+		  PIY = PIY + RIJZ(3)*RIJX(1) - RIJZ(1)*RIJX(3)		!               RIJZ(1)*RIJX(3) - RIJZ(3)*RIJX(1)
+		  PIY = PIY + RIJZ(2)*RIJX(3) - RIJZ(3)*RIJX(2)
+
+          PIZ = RIJX(1)*RIJY(2) - RIJX(2)*RIJY(1)           !              RIJY(1)*RIJX(2)-RIJY(2)*RIJX(1)
+		  PIZ = PIZ + RIJX(3)*RIJY(1) - RIJX(1)*RIJY(3)	    !	           RIJY(1)*RIJX(3) - RIJY(3)*RIJX(1)
+		  PIZ = PIZ + RIJX(2)*RIJY(3) - RIJX(3)*RIJY(2)     !              RIJY(2)*RIJX(3)-RIJY(3)*RIJX(2)
+
+
+
+         RIJKL = RIJ(1)*RIJ(2) + RIJ(1)*RIJ(3) + RIJ(2)*RIJ(3) 
+
+         PIX = 3* PIX / RIJKL
+         PIY = 3* PIY / RIJKL
+		 PIZ = 3* PIZ / RIJKL
+
+
+
+
+
+ENEPOT_stif=0.0
+
+!PJ_ITER :
+ DO 1252 JN=1,NNB
+      
+	  JP = NBLIST(IP1,JN)
+
+	 IF(IP(JP).EQ.0) GOTO 1252 !ENDDO PJ_ITER
+
+      NNB1 = NNBOR(JP) 
+	  
+	  NBOR_ITER : DO JN1=1,NNB1                      ! Does NNB1 equal 3? If not what is RIJX(3)?
+	  		
+		  JP1 = NBLIST(JP,JN1)	
+			  
+		  RIJX(JN1) = RX(JP1) - RX(JP)
+          RIJY(JN1) = RY(JP1) - RY(JP)
+          RIJZ(JN1) = RZ(JP1) - RZ(JP)
+
+         ! RIJX(JN1) = RIJX(JN1) - BOXX*ANINT( RIJX(JN1)/BOXX ) 
+          RIJY(JN1) = RIJY(JN1) - BOXY*ANINT( RIJY(JN1)/BOXY )
+          !RIJZ(JN1) = RIJZ(JN1) - BOXZ*ANINT( RIJZ(JN1)/BOXZ )
+
+          RIJ(JN1) = SQRT( RIJX(JN1)**2 + RIJY(JN1)**2 + RIJZ(JN1)**2 )
+        
+
+      ENDDO NBOR_ITER
+
+
+PJX=0.0d0
+PJY=0.0d0
+PJZ=0.0d0
+
+
+          PJX = RIJY(1)*RIJZ(2) - RIJY(2)*RIJZ(1)
+          PJX = PJX + RIJY(3)*RIJZ(1) - RIJY(1)*RIJZ(3)       
+		  PJX = PJX + RIJY(2)*RIJZ(3) - RIJY(3)*RIJZ(2)
+
+          PJY = RIJZ(1)*RIJX(2) - RIJZ(2)*RIJX(1)
+          PJY = PJY + RIJZ(3)*RIJX(1) - RIJZ(1)*RIJX(3)           
+		  PJY = PJY + RIJZ(2)*RIJX(3) - RIJZ(3)*RIJX(2)
+
+          PJZ = RIJX(1)*RIJY(2) - RIJX(2)*RIJY(1) 
+          PJZ = PJZ + RIJX(3)*RIJY(1) - RIJX(1)*RIJY(3)         
+		  PJZ = PJZ + RIJX(2)*RIJY(3) - RIJX(3)*RIJY(2)
+
+
+          RIJKL = RIJ(1)*RIJ(2)+RIJ(1)*RIJ(3)+RIJ(2)*RIJ(3)           
+
+
+         PJX = 3* PJX / RIJKL
+         PJY = 3* PJY / RIJKL
+		 PJZ = 3* PJZ / RIJKL
+
+
+
+
+!========================
+!=============================
+!==================================
+
+
+                  
+    	PIPJ = (PIY*PJZ-PIZ*PJY)**2 + (PIZ*PJX-PIX*PJZ)**2 + (PIX*PJY-PIY*PJX)**2
+
+        ENEPOT_stif = ENEPOT_stif + BETA_P * PIPJ      ! stiffness against missalignment of neighboring 
+
+
+1252 ENDDO ! PJ_ITER
+
+!-----------------------
+ ENEPOT=ENEPOT+ENEPOT_s+ENEPOT_be+ENEPOT_bo+ENEPOT_cor+ENEPOT_out+ENEPOT_stif
+ 
+ 
+    Total_ENEPOT_s = Total_ENEPOT_s + ENEPOT_s
+    Total_ENEPOT_be = Total_ENEPOT_be + ENEPOT_be
+    Total_ENEPOT_bo = Total_ENEPOT_bo + ENEPOT_bo
+    Total_ENEPOT_cor = Total_ENEPOT_cor + ENEPOT_cor
+    Total_ENEPOT_out = Total_ENEPOT_out + ENEPOT_out
+    Total_ENEPOT_stif = Total_ENEPOT_stif + ENEPOT_stif
+ 
+
+1253 ENDDO ! MainITERATION
+
+    END SUBROUTINE TERSOFF2009
+!-------------------------
